@@ -1,0 +1,54 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Suno Prompt Engine - AI Music Prompt Builder</title>
+    <meta name="description" content="AI-powered Suno prompt builder with OpenRouter. Create precise Suno v4.5 prompts using curated metatag system." />
+    <meta name="author" content="Suno Prompt Engine" />
+
+    <!-- PWA Meta Tags -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#8b5cf6" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Suno Engine" />
+    <link rel="apple-touch-icon" href="/pwa-192x192.png" />
+    
+    <!-- Favicon -->
+    <link rel="icon" href="/pwa-192x192.png" type="image/png">
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Suno Prompt Engine - AI Music Prompt Builder" />
+    <meta property="og:description" content="AI-powered Suno prompt builder with OpenRouter. Create precise Suno v4.5 prompts using curated metatag system." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/pwa-512x512.png" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Suno Prompt Engine" />
+    <meta name="twitter:description" content="AI-powered Suno prompt builder with OpenRouter" />
+    <meta name="twitter:image" content="/pwa-512x512.png" />
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('SW registered: ', registration);
+            })
+            .catch((registrationError) => {
+              console.log('SW registration failed: ', registrationError);
+            });
+        });
+      }
+    </script>
+  </body>
+</html>

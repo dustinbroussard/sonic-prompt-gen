@@ -1,0 +1,55 @@
+{
+  "name": "Suno Prompt Engine - AI Music Prompt Builder",
+  "short_name": "Suno Engine",
+  "description": "AI Suno prompt builder using curated metatag system.",
+  "start_url": "https://sonic-prompt-craft.app/",
+  "scope": "https://sonic-prompt-craft.app/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f0f23",
+  "theme_color": "#8b5cf6",
+  "categories": ["music", "productivity", "entertainment"],
+  "lang": "en-US",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshot-desktop.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide"
+    },
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "narrow"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Create New Prompt",
+      "short_name": "New Prompt",
+      "description": "Start creating a new Suno prompt",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/pwa-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}
