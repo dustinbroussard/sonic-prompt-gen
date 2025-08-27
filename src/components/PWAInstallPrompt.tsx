@@ -14,6 +14,7 @@ export function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
+  const PROMPT_INTERVAL_DAYS = 0; // change to >0 to reduce prompt frequency
 
   useEffect(() => {
     // Check if app is already installed
@@ -29,9 +30,13 @@ export function PWAInstallPrompt() {
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
-      
-      // Show prompt if not installed and not dismissed in this session
-      if (!isInstalled && !sessionStorage.getItem('pwa-prompt-dismissed')) {
+
+      const last = Number(localStorage.getItem('pwa-prompt-last') || '0');
+      const interval = PROMPT_INTERVAL_DAYS * 24 * 60 * 60 * 1000;
+      const dismissed = sessionStorage.getItem('pwa-prompt-dismissed');
+      const shouldShow = !isInstalled && !dismissed && (interval === 0 || Date.now() - last > interval);
+
+      if (shouldShow) {
         setShowPrompt(true);
       }
     };
@@ -64,6 +69,8 @@ export function PWAInstallPrompt() {
       console.log('User dismissed the install prompt');
       sessionStorage.setItem('pwa-prompt-dismissed', 'true');
     }
+
+    localStorage.setItem('pwa-prompt-last', Date.now().toString());
     
     setDeferredPrompt(null);
     setShowPrompt(false);
@@ -72,6 +79,7 @@ export function PWAInstallPrompt() {
   const handleDismiss = () => {
     setShowPrompt(false);
     sessionStorage.setItem('pwa-prompt-dismissed', 'true');
+    localStorage.setItem('pwa-prompt-last', Date.now().toString());
   };
 
   if (isInstalled || !showPrompt) return null;
