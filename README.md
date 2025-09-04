@@ -4,7 +4,7 @@ This project is configured as a Progressive Web App ready for installation and A
 
 ## PWA Features
 - [`manifest.webmanifest`](public/manifest.webmanifest) defines app name, icons, colors and other metadata required for install.
-- [`sw.js`](public/sw.js) uses a network-first strategy for navigation and a stale‑while‑revalidate cache for other assets to enable offline use.
+- [`sw.js`](public/sw.js) applies a stale‑while‑revalidate cache to all requests and falls back to cached pages when offline.
 - [`PWAInstallPrompt`](src/components/PWAInstallPrompt.tsx) shows a custom install banner whenever the app is opened and the user has not installed it. The prompt is suppressed only for the current session or for the optional interval defined by `PROMPT_INTERVAL_DAYS`.
 
 ## Testing Installability
