@@ -1,4 +1,4 @@
-const CACHE_NAME = 'suno-prompt-engine-v2';
+const CACHE_NAME = 'suno-prompt-engine-v3';
 const PRECACHE = [
   '/',
   '/index.html',
@@ -26,15 +26,6 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
 
-  // Network-first for navigation requests
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request).catch(() => caches.match('/'))
-    );
-    return;
-  }
-
-  // Stale-while-revalidate for other requests
   event.respondWith(
     caches.match(event.request).then(cached => {
       const fetchPromise = fetch(event.request)
@@ -45,7 +36,12 @@ self.addEventListener('fetch', event => {
           }
           return response;
         })
-        .catch(() => cached);
+        .catch(() => {
+          if (cached) return cached;
+          if (event.request.mode === 'navigate') {
+            return caches.match('/');
+          }
+        });
       return cached || fetchPromise;
     })
   );
