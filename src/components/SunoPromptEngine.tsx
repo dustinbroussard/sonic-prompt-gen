@@ -16,7 +16,8 @@ import {
   FolderOpen,
   Music,
   Sparkles,
-  Zap
+  Zap,
+  Download as DownloadIcon
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -43,6 +44,7 @@ import {
 } from "@/components/ui/command";
 import { Separator } from "@/components/ui/separator";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
+import { onInstallableChange, triggerInstall } from "@/pwa/install";
 
 // Constants & Utilities
 const LS_KEYS = {
@@ -51,6 +53,7 @@ const LS_KEYS = {
   theme: "sunoPE_theme",
   presets: "sunoPE_presets",
   history: "sunoPE_history",
+  pwaPromptDays: "sunoPE_pwaPromptDays",
 };
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
@@ -651,6 +654,8 @@ export default function SunoPromptEngine() {
   const [presets, setPresets] = useLocalStorage<Preset[]>(LS_KEYS.presets, []);
   const [history, setHistory] = useLocalStorage<HistoryItem[]>(LS_KEYS.history, []);
   const [err, setErr] = useState("");
+  const [installable, setInstallable] = useState(false);
+  const [pwaDays, setPwaDays] = useLocalStorage<number>(LS_KEYS.pwaPromptDays, 0);
 
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -660,15 +665,24 @@ export default function SunoPromptEngine() {
     else root.classList.remove("dark");
   }, [theme]);
 
+  useEffect(() => {
+    const unsub = onInstallableChange((v) => setInstallable(v));
+    return unsub;
+  }, []);
+
   async function fetchModels() {
     setLoadingModels(true);
     setErr("");
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
       const res = await fetch(`${OPENROUTER_BASE}/models`, {
         headers: {
           Authorization: `Bearer ${apiKey.trim()}`,
         },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (!res.ok) throw new Error(`Model fetch failed (${res.status})`);
       const json = await res.json();
       const list = (json?.data || []).map((m: any) => ({
@@ -681,7 +695,8 @@ export default function SunoPromptEngine() {
       setModels(list);
       if (!model && list.length) setModel(list[0].id);
     } catch (e) {
-      setErr((e as Error).message || "Unable to fetch models.");
+      if ((e as any)?.name === 'AbortError') setErr("Model fetch timed out. Please try again.");
+      else setErr((e as Error).message || "Unable to fetch models.");
     } finally {
       setLoadingModels(false);
     }
@@ -705,6 +720,8 @@ export default function SunoPromptEngine() {
     
     setLoading(true);
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
       const res = await fetch(`${OPENROUTER_BASE}/chat/completions`, {
         method: "POST",
         headers: {
@@ -720,7 +737,9 @@ export default function SunoPromptEngine() {
             { role: "user", content: prompt.trim() },
           ],
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
       const json = await res.json();
       const text = json?.choices?.[0]?.message?.content || "";
@@ -731,7 +750,8 @@ export default function SunoPromptEngine() {
         ...history.slice(0, 49),
       ]);
     } catch (e) {
-      setErr((e as Error).message || "Request error.");
+      if ((e as any)?.name === 'AbortError') setErr("Request timed out. Please try again.");
+      else setErr((e as Error).message || "Request error.");
     } finally {
       setLoading(false);
     }
@@ -813,6 +833,26 @@ export default function SunoPromptEngine() {
           </motion.div>
           
           <div className="flex items-center gap-2">
+            {/* Install App Button */}
+            <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={async () => {
+                  const outcome = await triggerInstall();
+                  if (outcome === 'dismissed') {
+                    try { sessionStorage.setItem('pwa-prompt-dismissed', 'true'); } catch {}
+                  }
+                  try { localStorage.setItem('pwa-prompt-last', Date.now().toString()); } catch {}
+                }}
+                className="hover-lift hover-glow rounded-xl"
+                aria-label="Install App"
+                disabled={!installable}
+                title={installable ? 'Install App' : 'Install not available'}
+              >
+                <DownloadIcon className="h-5 w-5" />
+              </Button>
+            </motion.div>
             <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
               <Button 
                 variant="ghost" 
@@ -1118,18 +1158,37 @@ export default function SunoPromptEngine() {
                 🔒 Your API key is stored securely in your browser and only sent to OpenRouter.
               </p>
             </div>
-            <div className="space-y-3">
-              <Label className="text-sm font-medium">AI Model</Label>
-              <ModelPicker
-                value={model}
-                display={modelLabel}
-                options={models}
-                loading={loadingModels}
-                disabled={!apiKey}
-                onOpen={() => { if (apiKey && !models.length) fetchModels(); }}
-                onSelect={(id) => setModel(id)}
-              />
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">AI Model</Label>
+            <ModelPicker
+              value={model}
+              display={modelLabel}
+              options={models}
+              loading={loadingModels}
+              disabled={!apiKey}
+              onOpen={() => { if (apiKey && !models.length) fetchModels(); }}
+              onSelect={(id) => setModel(id)}
+            />
+          </div>
+          <div className="space-y-3">
+            <Label className="text-sm font-medium">Install Prompt Frequency</Label>
+            <div className="flex gap-2">
+              <select
+                value={pwaDays}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setPwaDays(val);
+                  try { localStorage.setItem('pwa-prompt-days', String(val)); } catch {}
+                }}
+                className="flex-1 rounded-xl border-border/50 bg-muted/30 h-10 px-3"
+              >
+                <option value={0}>Every session</option>
+                <option value={1}>Daily</option>
+                <option value={7}>Weekly</option>
+              </select>
             </div>
+            <p className="text-xs text-muted-foreground">Controls how often the custom install banner appears.</p>
+          </div>
           </div>
           <DialogFooter>
             <Button 

@@ -1,20 +1,20 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Download, X, Smartphone, Monitor } from 'lucide-react';
+import { Download, X, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt(): Promise<void>;
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
-}
+import { setDeferredPrompt as setGlobalDeferred, triggerInstall, BeforeInstallPromptEvent } from '@/pwa/install';
 
 export function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
-  const PROMPT_INTERVAL_DAYS = 0; // change to >0 to reduce prompt frequency
+  const getFrequencyDays = () => {
+    const raw = localStorage.getItem('pwa-prompt-days');
+    const n = raw ? Number(raw) : 0;
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  };
 
   useEffect(() => {
     // Check if app is already installed
@@ -29,10 +29,12 @@ export function PWAInstallPrompt() {
     // Listen for beforeinstallprompt event
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
-      setDeferredPrompt(e as BeforeInstallPromptEvent);
+      const ev = e as BeforeInstallPromptEvent;
+      setDeferredPrompt(ev);
+      setGlobalDeferred(ev);
 
       const last = Number(localStorage.getItem('pwa-prompt-last') || '0');
-      const interval = PROMPT_INTERVAL_DAYS * 24 * 60 * 60 * 1000;
+      const interval = getFrequencyDays() * 24 * 60 * 60 * 1000;
       const dismissed = sessionStorage.getItem('pwa-prompt-dismissed');
       const shouldShow = !isInstalled && !dismissed && (interval === 0 || Date.now() - last > interval);
 
@@ -46,6 +48,7 @@ export function PWAInstallPrompt() {
       setIsInstalled(true);
       setShowPrompt(false);
       setDeferredPrompt(null);
+      setGlobalDeferred(null);
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
@@ -58,20 +61,11 @@ export function PWAInstallPrompt() {
   }, [isInstalled]);
 
   const handleInstallClick = async () => {
-    if (!deferredPrompt) return;
-
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    
-    if (outcome === 'accepted') {
-      console.log('User accepted the install prompt');
-    } else {
-      console.log('User dismissed the install prompt');
+    const outcome = await triggerInstall();
+    if (outcome === 'dismissed') {
       sessionStorage.setItem('pwa-prompt-dismissed', 'true');
     }
-
     localStorage.setItem('pwa-prompt-last', Date.now().toString());
-    
     setDeferredPrompt(null);
     setShowPrompt(false);
   };

@@ -23,26 +23,36 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET') return;
+self.addEventListener('fetch', (event) => {
+  const req = event.request;
+  if (req.method !== 'GET') return;
 
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      const fetchPromise = fetch(event.request)
-        .then(response => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-          }
-          return response;
-        })
-        .catch(() => {
-          if (cached) return cached;
-          if (event.request.mode === 'navigate') {
-            return caches.match('/');
-          }
-        });
-      return cached || fetchPromise;
-    })
-  );
+  const url = new URL(req.url);
+  const isSameOrigin = url.origin === self.location.origin;
+  const hasAuth = req.headers && req.headers.get('authorization');
+
+  // Avoid caching cross-origin or auth requests
+  if (!isSameOrigin || hasAuth) return;
+
+  // Avoid intercepting dev-server module requests (e.g., /src/, /@vite/)
+  if (url.pathname.startsWith('/src/') || url.pathname.startsWith('/@vite')) return;
+
+  event.respondWith((async () => {
+    const cached = await caches.match(req);
+    try {
+      const response = await fetch(req);
+      if (response && response.status === 200) {
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
+      }
+      return response;
+    } catch (err) {
+      if (cached) return cached;
+      if (req.mode === 'navigate') {
+        const shell = await caches.match('/');
+        if (shell) return shell;
+      }
+      return new Response('', { status: 504, statusText: 'Gateway Timeout' });
+    }
+  })());
 });
