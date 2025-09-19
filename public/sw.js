@@ -1,10 +1,18 @@
 const CACHE_NAME = 'suno-prompt-engine-v3';
+
+const BASE_URL = (() => {
+  const { pathname } = self.location;
+  return pathname.endsWith('sw.js')
+    ? pathname.slice(0, -'sw.js'.length)
+    : new URL('./', self.location).pathname;
+})();
+
 const PRECACHE = [
-  '/',
-  '/index.html',
-  '/manifest.webmanifest',
-  '/pwa-192x192.png',
-  '/pwa-512x512.png'
+  BASE_URL,
+  `${BASE_URL}index.html`,
+  `${BASE_URL}manifest.webmanifest`,
+  `${BASE_URL}pwa-192x192.png`,
+  `${BASE_URL}pwa-512x512.png`,
 ];
 
 self.addEventListener('install', event => {
@@ -61,8 +69,11 @@ self.addEventListener('fetch', (event) => {
     }
 
     if (req.mode === 'navigate') {
-      const shell = await cache.match('/');
+      const shell = await cache.match(new URL(BASE_URL, self.location.origin));
       if (shell) return shell;
+
+      const shellHtml = await cache.match(new URL(`${BASE_URL}index.html`, self.location.origin));
+      if (shellHtml) return shellHtml;
     }
 
     return new Response('', { status: 504, statusText: 'Gateway Timeout' });
