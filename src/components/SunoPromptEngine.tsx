@@ -44,7 +44,13 @@ import {
 } from "@/components/ui/command";
 import { Separator } from "@/components/ui/separator";
 import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
-import { onInstallableChange, triggerInstall } from "@/pwa/install";
+import {
+  INSTALL_PROMPT_STORAGE,
+  markPromptDismissedThisSession,
+  onInstallableChange,
+  stampPromptLastShown,
+  triggerInstall,
+} from "@/pwa/install";
 
 // Constants & Utilities
 const LS_KEYS = {
@@ -53,7 +59,7 @@ const LS_KEYS = {
   theme: "sunoPE_theme",
   presets: "sunoPE_presets",
   history: "sunoPE_history",
-  pwaPromptDays: "sunoPE_pwaPromptDays",
+  pwaPromptDays: INSTALL_PROMPT_STORAGE.frequency,
 };
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
@@ -544,25 +550,55 @@ You output only the prompt using a mix of metatags and natural language. Include
 // Utility functions
 function useLocalStorage<T>(key: string, initialValue: T): [T, (value: T) => void] {
   const [value, setValue] = useState<T>(() => {
+    if (typeof window === "undefined") return initialValue;
     try {
-      const item = localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
+      const item = window.localStorage.getItem(key);
+      return item ? (JSON.parse(item) as T) : initialValue;
     } catch (e) {
       return initialValue;
     }
   });
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
     try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch {}
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      /* ignore persistence errors */
+    }
   }, [key, value]);
 
   return [value, setValue];
 }
 
 function copy(text: string) {
-  return navigator.clipboard.writeText(text || "");
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    return navigator.clipboard.writeText(text || "");
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    if (typeof document === "undefined") {
+      reject(new Error("Clipboard API unavailable"));
+      return;
+    }
+
+    try {
+      const textarea = document.createElement("textarea");
+      textarea.value = text || "";
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const successful = document.execCommand("copy");
+      document.body.removeChild(textarea);
+
+      if (successful) resolve();
+      else reject(new Error("Copy command was unsuccessful."));
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error("Copy failed."));
+    }
+  });
 }
 
 function downloadTxt(filename: string, content: string) {
@@ -610,12 +646,40 @@ function bundleTxt(natural: string, tags: string[], exclude: string) {
   ].join("");
 }
 
+interface OpenRouterApiModel {
+  id: string;
+  context_length?: number;
+  pricing?: Record<string, unknown>;
+  top_provider?: { name?: string };
+}
+
+interface OpenRouterModelResponse {
+  data?: OpenRouterApiModel[];
+}
+
+interface OpenRouterChatResponse {
+  choices?: Array<{ message?: { content?: string } }>;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "name" in error &&
+    (error as { name?: string }).name === "AbortError"
+  );
+}
+
+function getErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 // Types
 interface Model {
   id: string;
   name: string;
   context_length?: number;
-  pricing?: any;
+  pricing?: Record<string, unknown>;
   top_provider?: string;
 }
 
@@ -660,9 +724,15 @@ export default function SunoPromptEngine() {
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (typeof document === "undefined") return;
     const root = document.documentElement;
-    if (theme === "dark") root.classList.add("dark");
-    else root.classList.remove("dark");
+    if (theme === "dark") {
+      root.classList.add("dark");
+      root.style.colorScheme = "dark";
+    } else {
+      root.classList.remove("dark");
+      root.style.colorScheme = "light";
+    }
   }, [theme]);
 
   useEffect(() => {
@@ -684,19 +754,20 @@ export default function SunoPromptEngine() {
       });
       clearTimeout(timeoutId);
       if (!res.ok) throw new Error(`Model fetch failed (${res.status})`);
-      const json = await res.json();
-      const list = (json?.data || []).map((m: any) => ({
+      const json = (await res.json()) as OpenRouterModelResponse;
+      const data = Array.isArray(json.data) ? json.data : [];
+      const list = data.map((m) => ({
         id: m.id,
         name: m.id,
-        context_length: m?.context_length,
-        pricing: m?.pricing,
-        top_provider: m?.top_provider?.name,
+        context_length: m.context_length,
+        pricing: m.pricing,
+        top_provider: m.top_provider?.name,
       }));
       setModels(list);
       if (!model && list.length) setModel(list[0].id);
-    } catch (e) {
-      if ((e as any)?.name === 'AbortError') setErr("Model fetch timed out. Please try again.");
-      else setErr((e as Error).message || "Unable to fetch models.");
+    } catch (error) {
+      if (isAbortError(error)) setErr("Model fetch timed out. Please try again.");
+      else setErr(getErrorMessage(error, "Unable to fetch models."));
     } finally {
       setLoadingModels(false);
     }
@@ -741,17 +812,17 @@ export default function SunoPromptEngine() {
       });
       clearTimeout(timeoutId);
       if (!res.ok) throw new Error(`Request failed (${res.status})`);
-      const json = await res.json();
-      const text = json?.choices?.[0]?.message?.content || "";
+      const json = (await res.json()) as OpenRouterChatResponse;
+      const text = json.choices?.[0]?.message?.content ?? "";
       const parsed = parseOutputs(text);
       setOutputs(parsed);
       setHistory([
         { ts: Date.now(), prompt: prompt.trim(), model, output: text },
         ...history.slice(0, 49),
       ]);
-    } catch (e) {
-      if ((e as any)?.name === 'AbortError') setErr("Request timed out. Please try again.");
-      else setErr((e as Error).message || "Request error.");
+    } catch (error) {
+      if (isAbortError(error)) setErr("Request timed out. Please try again.");
+      else setErr(getErrorMessage(error, "Request error."));
     } finally {
       setLoading(false);
     }
@@ -759,14 +830,18 @@ export default function SunoPromptEngine() {
 
   function exportAll() {
     const txt = bundleTxt(outputs.natural, outputs.tags, outputs.exclude);
-    const safe = (prompt.slice(0, 40) || "suno-prompt").replace(/[^a-z0-9\-\_]+/gi, "-");
+    const safe = (prompt.slice(0, 40) || "suno-prompt").replace(/[^a-z0-9-_]+/gi, "-");
     downloadTxt(`${safe}.txt`, txt);
   }
 
   function savePreset() {
     if (!prompt.trim()) return;
     const name = prompt.split("\n")[0].slice(0, 40) || `Preset ${presets.length + 1}`;
-    const item = { id: crypto.randomUUID(), name, prompt: prompt.trim() };
+    const id =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const item = { id, name, prompt: prompt.trim() };
     setPresets([item, ...presets].slice(0, 30));
   }
 
@@ -779,10 +854,19 @@ export default function SunoPromptEngine() {
   }
 
   function copyAndFlash(which: 'n' | 't' | 'e', text: string) {
-    copy(text).then(() => {
-      setCopied((c) => ({ ...c, [which]: true }));
-      setTimeout(() => setCopied((c) => ({ ...c, [which]: false })), 1200);
-    });
+    copy(text)
+      .then(() => {
+        setCopied((c) => ({ ...c, [which]: true }));
+        setTimeout(() => setCopied((c) => ({ ...c, [which]: false })), 1200);
+      })
+      .catch(() => {
+        const message = "Unable to copy to clipboard. Please try again.";
+        setErr(message);
+        setTimeout(
+          () => setErr((prev) => (prev === message ? "" : prev)),
+          3000,
+        );
+      });
   }
 
   const modelLabel = useMemo(() => 
@@ -841,9 +925,11 @@ export default function SunoPromptEngine() {
                 onClick={async () => {
                   const outcome = await triggerInstall();
                   if (outcome === 'dismissed') {
-                    try { sessionStorage.setItem('pwa-prompt-dismissed', 'true'); } catch {}
+                    markPromptDismissedThisSession();
                   }
-                  try { localStorage.setItem('pwa-prompt-last', Date.now().toString()); } catch {}
+                  if (outcome !== 'unavailable') {
+                    stampPromptLastShown();
+                  }
                 }}
                 className="hover-lift hover-glow rounded-xl"
                 aria-label="Install App"
@@ -1178,7 +1264,6 @@ export default function SunoPromptEngine() {
                 onChange={(e) => {
                   const val = Number(e.target.value);
                   setPwaDays(val);
-                  try { localStorage.setItem('pwa-prompt-days', String(val)); } catch {}
                 }}
                 className="flex-1 rounded-xl border-border/50 bg-muted/30 h-10 px-3"
               >

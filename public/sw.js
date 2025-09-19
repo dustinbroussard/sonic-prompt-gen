@@ -38,21 +38,33 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/src/') || url.pathname.startsWith('/@vite')) return;
 
   event.respondWith((async () => {
-    const cached = await caches.match(req);
-    try {
-      const response = await fetch(req);
-      if (response && response.status === 200) {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
-      }
-      return response;
-    } catch (err) {
-      if (cached) return cached;
-      if (req.mode === 'navigate') {
-        const shell = await caches.match('/');
-        if (shell) return shell;
-      }
-      return new Response('', { status: 504, statusText: 'Gateway Timeout' });
+    const cache = await caches.open(CACHE_NAME);
+    const cachedResponse = await cache.match(req);
+
+    const networkFetch = fetch(req)
+      .then((response) => {
+        if (response && response.status === 200) {
+          cache.put(req, response.clone());
+        }
+        return response;
+      })
+      .catch(() => null);
+
+    if (cachedResponse) {
+      event.waitUntil(networkFetch.then(() => undefined));
+      return cachedResponse;
     }
+
+    const networkResponse = await networkFetch;
+    if (networkResponse) {
+      return networkResponse;
+    }
+
+    if (req.mode === 'navigate') {
+      const shell = await cache.match('/');
+      if (shell) return shell;
+    }
+
+    return new Response('', { status: 504, statusText: 'Gateway Timeout' });
   })());
 });

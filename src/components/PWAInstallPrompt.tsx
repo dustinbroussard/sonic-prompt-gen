@@ -4,24 +4,30 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Download, X, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { setDeferredPrompt as setGlobalDeferred, triggerInstall, BeforeInstallPromptEvent } from '@/pwa/install';
+import {
+  setDeferredPrompt as setGlobalDeferred,
+  triggerInstall,
+  BeforeInstallPromptEvent,
+  markPromptDismissedThisSession,
+  stampPromptLastShown,
+  readPromptFrequencyDays,
+  readPromptLastShown,
+  wasPromptDismissedThisSession,
+} from '@/pwa/install';
 
 export function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
-  const getFrequencyDays = () => {
-    const raw = localStorage.getItem('pwa-prompt-days');
-    const n = raw ? Number(raw) : 0;
-    return Number.isFinite(n) && n >= 0 ? n : 0;
-  };
 
   useEffect(() => {
     // Check if app is already installed
     const checkInstalled = () => {
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
-      const isApple = (window.navigator as any).standalone;
-      setIsInstalled(isStandalone || isApple);
+      if (typeof window === 'undefined') return;
+      const isStandalone = window.matchMedia?.('(display-mode: standalone)').matches;
+      const nav = window.navigator as Navigator & { standalone?: boolean };
+      const isApple = Boolean(nav?.standalone);
+      setIsInstalled(Boolean(isStandalone || isApple));
     };
 
     checkInstalled();
@@ -33,9 +39,9 @@ export function PWAInstallPrompt() {
       setDeferredPrompt(ev);
       setGlobalDeferred(ev);
 
-      const last = Number(localStorage.getItem('pwa-prompt-last') || '0');
-      const interval = getFrequencyDays() * 24 * 60 * 60 * 1000;
-      const dismissed = sessionStorage.getItem('pwa-prompt-dismissed');
+      const last = readPromptLastShown();
+      const interval = readPromptFrequencyDays() * 24 * 60 * 60 * 1000;
+      const dismissed = wasPromptDismissedThisSession();
       const shouldShow = !isInstalled && !dismissed && (interval === 0 || Date.now() - last > interval);
 
       if (shouldShow) {
@@ -63,20 +69,25 @@ export function PWAInstallPrompt() {
   const handleInstallClick = async () => {
     const outcome = await triggerInstall();
     if (outcome === 'dismissed') {
-      sessionStorage.setItem('pwa-prompt-dismissed', 'true');
+      markPromptDismissedThisSession();
     }
-    localStorage.setItem('pwa-prompt-last', Date.now().toString());
-    setDeferredPrompt(null);
+    if (outcome === 'accepted') {
+      setIsInstalled(true);
+    }
+    if (outcome !== 'unavailable') {
+      setDeferredPrompt(null);
+    }
+    stampPromptLastShown();
     setShowPrompt(false);
   };
 
   const handleDismiss = () => {
     setShowPrompt(false);
-    sessionStorage.setItem('pwa-prompt-dismissed', 'true');
-    localStorage.setItem('pwa-prompt-last', Date.now().toString());
+    markPromptDismissedThisSession();
+    stampPromptLastShown();
   };
 
-  if (isInstalled || !showPrompt) return null;
+  if (isInstalled || !showPrompt || !deferredPrompt) return null;
 
   return (
     <AnimatePresence>
